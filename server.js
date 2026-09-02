@@ -26,129 +26,102 @@ const ATTACK_COOLDOWN = 450;
 const PUNCH_DAMAGE = 10;
 const KICK_DAMAGE = 15;
 
-const symbols = ["🔵", "🔴"];
+const ATTACK_TIME = 180;
+const GAME_TICK = 50;
 
 
-/* =========================================================
-   HTTP SERVER
-========================================================= */
+// =========================================================
+// HTTP SERVER
+// =========================================================
 
 const server = http.createServer((req, res) => {
-
     let filePath;
 
     if (req.url === "/") {
-
-        filePath =
-            path.join(
-                __dirname,
-                "public",
-                "index.html"
-            );
-
+        filePath = path.join(
+            __dirname,
+            "public",
+            "index.html"
+        );
     } else {
+        const cleanUrl = decodeURIComponent(
+            req.url.split("?")[0]
+        );
 
-        const cleanUrl =
-            decodeURIComponent(
-                req.url.split("?")[0]
-            );
-
-        filePath =
-            path.join(
-                __dirname,
-                "public",
-                cleanUrl
-            );
+        filePath = path.join(
+            __dirname,
+            "public",
+            cleanUrl
+        );
     }
 
+    // Sicherheit gegen ../
+    const publicDir = path.join(__dirname, "public");
+    const resolvedPath = path.resolve(filePath);
 
-    fs.readFile(
-        filePath,
-        (error, data) => {
+    if (!resolvedPath.startsWith(publicDir)) {
+        res.writeHead(403, {
+            "Content-Type": "text/plain; charset=utf-8"
+        });
 
-            if (error) {
+        res.end("403 - Zugriff verweigert");
+        return;
+    }
 
-                res.writeHead(
-                    404,
-                    {
-                        "Content-Type":
-                            "text/plain; charset=utf-8"
-                    }
-                );
+    fs.readFile(filePath, (error, data) => {
+        if (error) {
+            res.writeHead(404, {
+                "Content-Type": "text/plain; charset=utf-8"
+            });
 
-                res.end(
-                    "404 - Datei nicht gefunden"
-                );
-
-                return;
-            }
-
-
-            let contentType =
-                "text/plain; charset=utf-8";
-
-
-            if (
-                filePath.endsWith(".html")
-            ) {
-
-                contentType =
-                    "text/html; charset=utf-8";
-
-            } else if (
-                filePath.endsWith(".js")
-            ) {
-
-                contentType =
-                    "application/javascript; charset=utf-8";
-
-            } else if (
-                filePath.endsWith(".css")
-            ) {
-
-                contentType =
-                    "text/css; charset=utf-8";
-
-            }
-
-
-            res.writeHead(
-                200,
-                {
-                    "Content-Type":
-                        contentType
-                }
-            );
-
-
-            res.end(data);
+            res.end("404 - Datei nicht gefunden");
+            return;
         }
-    );
+
+        let contentType =
+            "text/plain; charset=utf-8";
+
+        if (filePath.endsWith(".html")) {
+            contentType =
+                "text/html; charset=utf-8";
+        } else if (filePath.endsWith(".js")) {
+            contentType =
+                "application/javascript; charset=utf-8";
+        } else if (filePath.endsWith(".css")) {
+            contentType =
+                "text/css; charset=utf-8";
+        } else if (filePath.endsWith(".json")) {
+            contentType =
+                "application/json; charset=utf-8";
+        }
+
+        res.writeHead(200, {
+            "Content-Type": contentType
+        });
+
+        res.end(data);
+    });
 });
 
 
-/* =========================================================
-   WEBSOCKET
-========================================================= */
+// =========================================================
+// WEBSOCKET
+// =========================================================
 
-const wss =
-    new WebSocket.Server({
-        server
-    });
+const wss = new WebSocket.Server({
+    server
+});
 
 
-/* =========================================================
-   HILFSFUNKTIONEN
-========================================================= */
+// =========================================================
+// HILFSFUNKTIONEN
+// =========================================================
 
 function send(ws, type, data = {}) {
-
     if (
         ws &&
-        ws.readyState ===
-            WebSocket.OPEN
+        ws.readyState === WebSocket.OPEN
     ) {
-
         ws.send(
             JSON.stringify({
                 type,
@@ -160,78 +133,55 @@ function send(ws, type, data = {}) {
 
 
 function randomRoomCode() {
-
     const chars =
         "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-    let code = "";
+    let code;
 
     do {
-
         code = "";
 
-        for (
-            let i = 0;
-            i < 6;
-            i++
-        ) {
-
-            code +=
-                chars[
-                    Math.floor(
-                        Math.random() *
-                        chars.length
-                    )
-                ];
+        for (let i = 0; i < 6; i++) {
+            code += chars[
+                Math.floor(
+                    Math.random() *
+                    chars.length
+                )
+            ];
         }
-
-    } while (
-        rooms.has(code)
-    );
-
+    } while (rooms.has(code));
 
     return code;
 }
 
 
 function randomId() {
-
     return crypto.randomUUID();
 }
 
 
-function addLog(
-    room,
-    message
-) {
-
-    room.log.push(message);
-
-    if (
-        room.log.length > 50
-    ) {
-
-        room.log =
-            room.log.slice(-50);
-    }
+function getPlayers(room) {
+    return [...room.players.values()];
 }
 
 
-function currentOpponent(
-    room,
-    player
-) {
+function getPlayerNumber(room, player) {
+    const players = getPlayers(room);
 
-    for (
-        const other
-        of room.players.values()
-    ) {
+    const index = players.findIndex(
+        p => p.id === player.id
+    );
 
+    return index === 1 ? 2 : 1;
+}
+
+
+function getOpponent(room, player) {
+    for (const other of room.players.values()) {
         if (
             other.id !== player.id &&
             other.active
         ) {
-
             return other;
         }
     }
@@ -240,265 +190,191 @@ function currentOpponent(
 }
 
 
-/* =========================================================
-   SPIELSTAND
-========================================================= */
+// =========================================================
+// ÖFFENTLICHER SPIELSTAND
+// =========================================================
 
 function publicState(room) {
-
     return {
+        roomCode: room.code,
 
-        roomCode:
-            room.code,
+        status: room.status,
 
-        status:
-            room.status,
+        countdown: room.countdown,
 
-        players:
-            [...room.players.values()]
-                .map(
-                    player => ({
+        winner: room.winner,
 
-                        id:
-                            player.id,
+        players: getPlayers(room).map(player => ({
+            id: player.id,
 
-                        name:
-                            player.name,
+            x: player.x,
 
-                        symbol:
-                            player.symbol,
+            y: player.y,
 
-                        x:
-                            player.x,
+            hp: player.hp,
 
-                        y:
-                            player.y,
+            direction: player.direction,
 
-                        hp:
-                            player.hp,
+            attack: player.attacking
+                ? player.attackType
+                : null,
 
-                        facing:
-                            player.facing,
+            active: player.active,
 
-                        attacking:
-                            player.attacking,
-
-                        attackType:
-                            player.attackType,
-
-                        active:
-                            player.active,
-
-                        connected:
-                            Boolean(
-                                player.ws
-                            )
-                    })
-                ),
-
-        countdown:
-            room.countdown,
-
-        winner:
-            room.winner,
-
-        log:
-            room.log.slice(-50)
+            connected: Boolean(player.ws)
+        }))
     };
 }
 
 
 function broadcastState(room) {
+    const state = publicState(room);
 
-    const state =
-        publicState(room);
-
-
-    for (
-        const player
-        of room.players.values()
-    ) {
-
+    for (const player of room.players.values()) {
         send(
             player.ws,
             "state",
             {
-                game:
-                    state,
-
-                yourId:
-                    player.id
+                state: state,
+                yourId: player.id
             }
         );
     }
 }
 
 
-/* =========================================================
-   RAUM ERSTELLEN
-========================================================= */
+// =========================================================
+// SPIELER ERSTELLEN
+// =========================================================
 
-function createRoom(
-    name,
-    ws
+function createPlayer(
+    id,
+    ws,
+    playerNumber
 ) {
+    const isPlayer1 =
+        playerNumber === 1;
 
-    const code =
-        randomRoomCode();
-
-    const id =
-        randomId();
-
-
-    const player = {
-
+    return {
         id,
 
-        name,
+        ws,
 
-        symbol:
-            symbols[0],
-
-        x:
-            200,
+        x: isPlayer1 ? 200 : 750,
 
         y:
             GROUND_Y -
-
             PLAYER_HEIGHT,
 
-        vx:
-            0,
+        vx: 0,
 
-        vy:
-            0,
+        vy: 0,
 
-        hp:
-            START_HP,
+        hp: START_HP,
 
-        facing:
-            1,
+        direction:
+            isPlayer1 ? 1 : -1,
 
-        attacking:
-            false,
+        attacking: false,
 
-        attackType:
-            null,
+        attackType: null,
 
-        lastAttack:
-            0,
+        lastAttack: 0,
 
-        active:
-            true,
+        hitThisAttack: false,
 
-        ws
+        active: true
     };
+}
 
+
+// =========================================================
+// RAUM ERSTELLEN
+// =========================================================
+
+function createRoom(ws) {
+    const code = randomRoomCode();
+
+    const id = randomId();
+
+    const player = createPlayer(
+        id,
+        ws,
+        1
+    );
 
     const room = {
-
         code,
 
-        status:
-            "waiting",
+        status: "waiting",
 
-        countdown:
-            0,
+        countdown: 0,
 
-        winner:
-            null,
+        winner: null,
 
-        players:
-            new Map([
-                [id, player]
-            ]),
+        players: new Map([
+            [id, player]
+        ]),
 
-        log:
-            []
+        loop: null,
+
+        countdownTimer: null
     };
 
+    rooms.set(code, room);
 
-    rooms.set(
-        code,
-        room
+    ws.roomCode = code;
+
+    ws.playerId = id;
+
+    send(
+        ws,
+        "roomCreated",
+        {
+            roomCode: code,
+
+            playerId: id
+        }
     );
 
-
-    ws.roomCode =
-        code;
-
-    ws.playerId =
-        id;
-
-
-    addLog(
-        room,
-        `🏠 Raum ${code} wurde erstellt.`
-    );
-
-
-    addLog(
-        room,
-        `👤 ${name} wartet auf Spieler 2.`
-    );
-
+    broadcastState(room);
 
     return room;
 }
 
 
-/* =========================================================
-   RAUM BEITRETEN
-========================================================= */
+// =========================================================
+// RAUM BEITRETEN
+// =========================================================
 
-function joinRoom(
-    code,
-    name,
-    ws
-) {
-
-    const room =
-        rooms.get(code);
-
+function joinRoom(code, ws) {
+    const room = rooms.get(code);
 
     if (!room) {
-
         send(
             ws,
             "error",
             {
-                message:
-                    "Raum nicht gefunden."
+                message: "Raum nicht gefunden."
             }
         );
 
         return;
     }
 
-
-    if (
-        room.players.size >=
-        MAX_PLAYERS
-    ) {
-
+    if (room.players.size >= MAX_PLAYERS) {
         send(
             ws,
             "error",
             {
-                message:
-                    "Der Raum ist voll."
+                message: "Der Raum ist voll."
             }
         );
 
         return;
     }
 
-
-    if (
-        room.status !==
-        "waiting"
-    ) {
-
+    if (room.status !== "waiting") {
         send(
             ws,
             "error",
@@ -511,362 +387,185 @@ function joinRoom(
         return;
     }
 
+    const id = randomId();
 
-    const names =
-        [...room.players.values()]
-            .map(
-                player =>
-                    player.name.toLowerCase()
-            );
-
-
-    if (
-        names.includes(
-            name.toLowerCase()
-        )
-    ) {
-
-        send(
-            ws,
-            "error",
-            {
-                message:
-                    "Dieser Name wird bereits benutzt."
-            }
-        );
-
-        return;
-    }
-
-
-    const id =
-        randomId();
-
-
-    const player = {
-
+    const player = createPlayer(
         id,
-
-        name,
-
-        symbol:
-            symbols[1],
-
-        x:
-            750,
-
-        y:
-            GROUND_Y -
-            PLAYER_HEIGHT,
-
-        vx:
-            0,
-
-        vy:
-            0,
-
-        hp:
-            START_HP,
-
-        facing:
-            -1,
-
-        attacking:
-            false,
-
-        attackType:
-            null,
-
-        lastAttack:
-            0,
-
-        active:
-            true,
-
-        ws
-    };
-
+        ws,
+        2
+    );
 
     room.players.set(
         id,
         player
     );
 
+    ws.roomCode = code;
 
-    ws.roomCode =
-        code;
-
-    ws.playerId =
-        id;
-
-
-    addLog(
-        room,
-        `👤 ${name} ist beigetreten.`
-    );
-
-
-    /*
-     * WICHTIG:
-     * Eigene Spieler-ID sofort senden.
-     */
+    ws.playerId = id;
 
     send(
         ws,
         "roomJoined",
         {
-            roomCode:
-                code,
+            roomCode: code,
 
-            playerId:
-                id
+            playerId: id
         }
     );
 
+    room.status = "countdown";
 
-    /*
-     * Spiel kann jetzt starten.
-     */
-
-    room.status =
-        "countdown";
-
-    room.countdown =
-        3;
-
+    room.countdown = 3;
 
     broadcastState(room);
-
 
     startCountdown(room);
 }
 
 
-/* =========================================================
-   COUNTDOWN
-========================================================= */
+// =========================================================
+// COUNTDOWN
+// =========================================================
 
 function startCountdown(room) {
+    let value = 3;
 
-    let value =
-        3;
+    if (room.countdownTimer) {
+        clearInterval(
+            room.countdownTimer
+        );
+    }
 
+    room.countdownTimer =
+        setInterval(() => {
+            if (!rooms.has(room.code)) {
+                clearInterval(
+                    room.countdownTimer
+                );
 
-    const timer =
-        setInterval(
-            () => {
+                room.countdownTimer = null;
 
-                if (
-                    !rooms.has(room.code)
-                ) {
+                return;
+            }
 
-                    clearInterval(timer);
+            value--;
 
-                    return;
-                }
+            room.countdown = value;
 
+            broadcastState(room);
 
-                value--;
+            if (value <= 0) {
+                clearInterval(
+                    room.countdownTimer
+                );
 
+                room.countdownTimer = null;
 
-                room.countdown =
-                    value;
+                room.status = "playing";
 
+                room.countdown = 0;
 
                 broadcastState(room);
 
-
-                if (
-                    value <= 0
-                ) {
-
-                    clearInterval(timer);
-
-
-                    room.status =
-                        "playing";
-
-
-                    addLog(
-                        room,
-                        "🥊 KÄMPFT!"
-                    );
-
-
-                    broadcastState(room);
-
-                    startGameLoop(room);
-                }
-
-            },
-            1000
-        );
+                startGameLoop(room);
+            }
+        }, 1000);
 }
 
 
-/* =========================================================
-   SPIELLOOP
-========================================================= */
+// =========================================================
+// SPIELLOOP
+// =========================================================
 
 function startGameLoop(room) {
-
-    if (
-        room.loop
-    ) {
+    if (room.loop) {
         return;
     }
 
+    room.loop = setInterval(() => {
+        if (room.status !== "playing") {
+            clearInterval(room.loop);
 
-    room.loop =
-        setInterval(
-            () => {
+            room.loop = null;
 
-                if (
-                    room.status !==
-                    "playing"
-                ) {
+            return;
+        }
 
-                    clearInterval(
-                        room.loop
-                    );
+        updatePhysics(room);
 
-                    room.loop =
-                        null;
+        updateAttacks(room);
 
-                    return;
-                }
+        broadcastState(room);
 
-
-                updatePhysics(room);
-
-                updateAttacks(room);
-
-                broadcastState(room);
-
-            },
-            50
-        );
+    }, GAME_TICK);
 }
 
 
-/* =========================================================
-   PHYSIK
-========================================================= */
+// =========================================================
+// PHYSIK
+// =========================================================
 
 function updatePhysics(room) {
-
-    for (
-        const player
-        of room.players.values()
-    ) {
-
-        if (
-            !player.active
-        ) {
+    for (const player of room.players.values()) {
+        if (!player.active) {
             continue;
         }
 
+        player.x += player.vx;
 
-        player.x +=
-            player.vx;
+        player.y += player.vy;
 
-
-        player.y +=
-            player.vy;
-
-
-        player.vy +=
-            GRAVITY;
-
-
-        /*
-         * Boden
-         */
+        player.vy += GRAVITY;
 
         const floor =
             GROUND_Y -
             PLAYER_HEIGHT;
 
+        if (player.y >= floor) {
+            player.y = floor;
 
-        if (
-            player.y >=
-            floor
-        ) {
-
-            player.y =
-                floor;
-
-            player.vy =
-                0;
+            player.vy = 0;
         }
 
-
-        /*
-         * Spielfeldgrenzen
-         */
-
-        player.x =
-            Math.max(
+        player.x = Math.max(
+            20,
+            Math.min(
+                WORLD_WIDTH -
+                PLAYER_WIDTH -
                 20,
-                Math.min(
-                    WORLD_WIDTH -
-                    PLAYER_WIDTH -
-                    20,
-                    player.x
-                )
-            );
+                player.x
+            )
+        );
 
+        player.vx *= 0.75;
 
-        /*
-         * Reibung
-         */
-
-        player.vx *=
-            0.75;
-
-
-        /*
-         * Richtung
-         */
-
-        if (
-            Math.abs(player.vx) > 0.1
-        ) {
-
-            player.facing =
+        if (Math.abs(player.vx) > 0.1) {
+            player.direction =
                 player.vx >= 0
                     ? 1
                     : -1;
         }
 
-
-        /*
-         * Angriff nach kurzer Zeit
-         * automatisch beenden
-         */
-
         if (
-            player.attacking
-            &&
+            player.attacking &&
             Date.now() -
-                player.lastAttack
-            >
-                180
+                player.lastAttack >
+                ATTACK_TIME
         ) {
+            player.attacking = false;
 
-            player.attacking =
-                false;
+            player.attackType = null;
 
-            player.attackType =
-                null;
+            player.hitThisAttack = false;
         }
     }
 }
 
 
-/* =========================================================
-   STEUERUNG
-========================================================= */
+// =========================================================
+// STEUERUNG
+// =========================================================
 
 function handleInput(
     room,
@@ -874,124 +573,87 @@ function handleInput(
     key,
     pressed
 ) {
-
     const player =
         room.players.get(
             ws.playerId
         );
 
-
     if (
         !player ||
         !player.active ||
-        room.status !==
-            "playing"
+        room.status !== "playing"
     ) {
-
         return;
     }
-
 
     const normalized =
         String(key).toLowerCase();
 
 
+    // PLAYER 1 + PLAYER 2 LINKS
     if (
+        normalized === "a" ||
+        normalized === "arrowleft" ||
         normalized === "left"
-        ||
-        normalized === "arrowleft"
-        ||
-        normalized === "a"
     ) {
-
-        player.vx =
-            pressed
-                ? -MOVE_SPEED
-                : player.vx;
-
-
         if (pressed) {
+            player.vx = -MOVE_SPEED;
 
-            player.facing =
-                -1;
+            player.direction = -1;
         }
-
 
         return;
     }
 
 
+    // PLAYER 1 + PLAYER 2 RECHTS
     if (
+        normalized === "d" ||
+        normalized === "arrowright" ||
         normalized === "right"
-        ||
-        normalized === "arrowright"
-        ||
-        normalized === "d"
     ) {
-
-        player.vx =
-            pressed
-                ? MOVE_SPEED
-                : player.vx;
-
-
         if (pressed) {
+            player.vx = MOVE_SPEED;
 
-            player.facing =
-                1;
+            player.direction = 1;
         }
-
 
         return;
     }
 
 
+    // SPRINGEN
     if (
         pressed &&
         (
+            normalized === "w" ||
+            normalized === "arrowup" ||
             normalized === "up"
-            ||
-            normalized === "arrowup"
-            ||
-            normalized === "w"
         )
     ) {
-
         const floor =
             GROUND_Y -
             PLAYER_HEIGHT;
 
-
         const onGround =
-            player.y >=
-            floor - 2;
+            player.y >= floor - 2;
 
-
-        if (
-            onGround
-        ) {
-
-            player.vy =
-                JUMP_SPEED;
+        if (onGround) {
+            player.vy = JUMP_SPEED;
         }
-
 
         return;
     }
 
 
+    // SCHLAG
     if (
-        pressed
-        &&
+        pressed &&
         (
-            normalized === "f"
-            ||
+            normalized === "f" ||
             normalized === "numpad1"
-            ||
-            normalized === " "
         )
     ) {
-
         attack(
             room,
             player,
@@ -1002,16 +664,14 @@ function handleInput(
     }
 
 
+    // TRITT
     if (
-        pressed
-        &&
+        pressed &&
         (
-            normalized === "g"
-            ||
+            normalized === "g" ||
             normalized === "numpad2"
         )
     ) {
-
         attack(
             room,
             player,
@@ -1023,393 +683,294 @@ function handleInput(
 }
 
 
-/* =========================================================
-   ANGRIFF
-========================================================= */
+// =========================================================
+// ANGRIFF
+// =========================================================
 
 function attack(
     room,
     player,
     type
 ) {
-
-    const now =
-        Date.now();
-
-
-    if (
-        now -
-            player.lastAttack
-        <
-        ATTACK_COOLDOWN
-    ) {
-
+    if (!player.active) {
         return;
     }
 
+    const now = Date.now();
 
-    player.lastAttack =
-        now;
+    if (
+        now -
+            player.lastAttack <
+        ATTACK_COOLDOWN
+    ) {
+        return;
+    }
 
+    player.lastAttack = now;
 
-    player.attacking =
-        true;
+    player.attacking = true;
 
+    player.attackType = type;
 
-    player.attackType =
-        type;
+    player.hitThisAttack = false;
 }
 
 
-/* =========================================================
-   ANGRIFFE AUSWERTEN
-========================================================= */
+// =========================================================
+// ANGRIFFE AUSWERTEN
+// =========================================================
 
 function updateAttacks(room) {
+    if (room.status !== "playing") {
+        return;
+    }
 
-    for (
-        const player
-        of room.players.values()
-    ) {
-
+    for (const player of room.players.values()) {
         if (
             !player.active ||
             !player.attacking
         ) {
-
             continue;
         }
 
-
         const opponent =
-            currentOpponent(
+            getOpponent(
                 room,
                 player
             );
-
 
         if (!opponent) {
             continue;
         }
 
+        const playerCenter =
+            player.x +
+            PLAYER_WIDTH / 2;
+
+        const opponentCenter =
+            opponent.x +
+            PLAYER_WIDTH / 2;
 
         const distance =
             Math.abs(
-                (
-                    player.x +
-                    PLAYER_WIDTH / 2
-                )
-                -
-                (
-                    opponent.x +
-                    PLAYER_WIDTH / 2
-                )
+                playerCenter -
+                opponentCenter
             );
 
-
         const attackRange =
-            player.attackType ===
-                "kick"
+            player.attackType === "kick"
                 ? 95
                 : 75;
 
+        const opponentIsInFront =
+            player.direction === 1
+                ? opponentCenter >=
+                  playerCenter - 10
+                : opponentCenter <=
+                  playerCenter + 10;
 
         if (
-            distance <=
-            attackRange
+            distance <= attackRange &&
+            opponentIsInFront &&
+            !player.hitThisAttack
         ) {
+            const damage =
+                player.attackType === "kick"
+                    ? KICK_DAMAGE
+                    : PUNCH_DAMAGE;
 
-            /*
-             * Nur einmal pro Angriff treffen.
-             */
+            opponent.hp -= damage;
 
-            if (
-                !player.hitThisAttack
-            ) {
+            player.hitThisAttack = true;
 
-                const damage =
-                    player.attackType ===
-                        "kick"
-                        ? KICK_DAMAGE
-                        : PUNCH_DAMAGE;
+            if (opponent.hp <= 0) {
+                opponent.hp = 0;
 
+                opponent.active = false;
 
-                opponent.hp -=
-                    damage;
+                player.attacking = false;
 
+                player.attackType = null;
 
-                player.hitThisAttack =
-                    true;
+                room.winner = player.id;
 
+                room.status = "finished";
 
-                addLog(
-                    room,
-                    `${player.symbol} ${player.name} trifft ${opponent.symbol} ${opponent.name} mit ${player.attackType === "kick" ? "einem Tritt" : "einem Schlag"} (-${damage} HP).`
-                );
+                broadcastState(room);
 
-
-                if (
-                    opponent.hp <= 0
-                ) {
-
-                    opponent.hp =
-                        0;
-
-                    opponent.active =
-                        false;
-
-                    room.status =
-                        "finished";
-
-                    room.winner =
-                        player.id;
-
-
-                    addLog(
-                        room,
-                        `🏆 ${player.symbol} ${player.name} gewinnt!`
-                    );
-
-                }
+                return;
             }
         }
 
-
-        /*
-         * Angriff vorbei
-         */
-
         if (
             Date.now() -
-                player.lastAttack
-            >
-            180
+                player.lastAttack >
+            ATTACK_TIME
         ) {
+            player.attacking = false;
 
-            player.attacking =
-                false;
+            player.attackType = null;
 
-            player.attackType =
-                null;
-
-            player.hitThisAttack =
-                false;
-        }
-    }
-
-
-    /*
-     * Wenn das Spiel noch läuft,
-     * aber jemand HP 0 hat.
-     */
-
-    for (
-        const player
-        of room.players.values()
-    ) {
-
-        if (
-            player.hp <= 0
-        ) {
-
-            player.active =
-                false;
+            player.hitThisAttack = false;
         }
     }
 }
 
 
-/* =========================================================
-   RESET
-========================================================= */
+// =========================================================
+// RESET
+// =========================================================
 
 function resetRoom(
     room,
     ws
 ) {
+    const players =
+        getPlayers(room);
 
-    if (
-        room.players.size === 0
-    ) {
+    if (players.length === 0) {
         return;
     }
 
-
-    const players =
-        [
-            ...room.players.values()
-        ];
-
-
+    // Nur PLAYER 1 darf neue Runde starten
     if (
         ws.playerId !==
         players[0].id
     ) {
-
         return;
     }
 
+    if (room.loop) {
+        clearInterval(
+            room.loop
+        );
 
-    for (
-        let i = 0;
-        i < players.length;
-        i++
-    ) {
+        room.loop = null;
+    }
 
-        const player =
-            players[i];
+    if (room.countdownTimer) {
+        clearInterval(
+            room.countdownTimer
+        );
 
+        room.countdownTimer = null;
+    }
 
-        player.hp =
-            START_HP;
+    players.forEach((player, index) => {
+        player.hp = START_HP;
 
+        player.active = true;
 
-        player.active =
-            true;
+        player.attacking = false;
 
+        player.attackType = null;
 
-        player.attacking =
-            false;
+        player.lastAttack = 0;
 
+        player.hitThisAttack = false;
 
-        player.attackType =
-            null;
+        player.vx = 0;
 
-
-        player.vx =
-            0;
-
-
-        player.vy =
-            0;
-
+        player.vy = 0;
 
         player.x =
-            i === 0
+            index === 0
                 ? 200
                 : 750;
-
 
         player.y =
             GROUND_Y -
             PLAYER_HEIGHT;
 
-
-        player.facing =
-            i === 0
+        player.direction =
+            index === 0
                 ? 1
                 : -1;
-    }
+    });
 
+    room.winner = null;
 
-    room.status =
-        "countdown";
+    room.status = "countdown";
 
-
-    room.winner =
-        null;
-
-
-    room.countdown =
-        3;
-
-
-    room.log =
-        [];
-
-
-    addLog(
-        room,
-        "🔄 Neue Runde!"
-    );
-
+    room.countdown = 3;
 
     broadcastState(room);
-
 
     startCountdown(room);
 }
 
 
-/* =========================================================
-   DISCONNECT
-========================================================= */
+// =========================================================
+// DISCONNECT
+// =========================================================
 
 function handleDisconnect(ws) {
-
     const room =
         rooms.get(
             ws.roomCode
         );
 
-
     if (!room) {
         return;
     }
-
 
     const player =
         room.players.get(
             ws.playerId
         );
 
-
     if (!player) {
         return;
     }
 
+    player.ws = null;
 
-    player.ws =
-        null;
+    player.active = false;
 
-
-    addLog(
-        room,
-        `🔌 ${player.symbol} ${player.name} ist offline.`
-    );
-
-
+    // Wenn während des Spiels getrennt wird,
+    // gewinnt der andere Spieler.
     if (
-        room.status ===
-        "playing"
+        room.status === "playing"
     ) {
-
-        room.status =
-            "finished";
-
-
         const opponent =
-            currentOpponent(
+            getOpponent(
                 room,
                 player
             );
 
+        room.status = "finished";
 
         if (opponent) {
-
             room.winner =
                 opponent.id;
-
-            addLog(
-                room,
-                `🏆 ${opponent.symbol} ${opponent.name} gewinnt, weil ${player.name} getrennt wurde.`
-            );
         }
+
+        broadcastState(room);
+
+        return;
     }
 
+    // Beim Warten einfach Raum entfernen,
+    // wenn PLAYER 1 verschwindet.
+    if (
+        room.status === "waiting"
+    ) {
+        rooms.delete(room.code);
+
+        return;
+    }
 
     broadcastState(room);
 }
 
 
-/* =========================================================
-   WEBSOCKET EVENTS
-========================================================= */
+// =========================================================
+// WEBSOCKET EVENTS
+// =========================================================
 
 wss.on(
     "connection",
     ws => {
-
         send(
             ws,
             "connected"
@@ -1419,19 +980,14 @@ wss.on(
         ws.on(
             "message",
             raw => {
-
                 let message;
 
-
                 try {
-
                     message =
                         JSON.parse(
                             raw.toString()
                         );
-
-                } catch {
-
+                } catch (error) {
                     send(
                         ws,
                         "error",
@@ -1445,111 +1001,69 @@ wss.on(
                 }
 
 
-                /*
-                 * Raum erstellen
-                 */
+                // =========================================
+                // RAUM ERSTELLEN
+                // =========================================
 
                 if (
                     message.type ===
                     "createRoom"
                 ) {
+                    createRoom(ws);
 
-                    const name =
+                    return;
+                }
+
+
+                // =========================================
+                // RAUM BEITRETEN
+                // =========================================
+
+                if (
+                    message.type ===
+                    "joinRoom"
+                ) {
+                    const code =
                         String(
-                            message.name ||
+                            message.roomCode ||
+                            message.code ||
                             ""
                         )
-                            .trim()
-                            .slice(0, 20);
+                        .trim()
+                        .toUpperCase();
 
-
-                    if (!name) {
-
+                    if (code.length !== 6) {
                         send(
                             ws,
                             "error",
                             {
                                 message:
-                                    "Bitte Namen eingeben."
+                                    "Ungültiger Raumcode."
                             }
                         );
 
                         return;
                     }
 
-
-                    const room =
-                        createRoom(
-                            name,
-                            ws
-                        );
-
-
-                    send(
-                        ws,
-                        "roomCreated",
-                        {
-                            roomCode:
-                                room.code,
-
-                            playerId:
-                                ws.playerId
-                        }
-                    );
-
-
-                    broadcastState(room);
-
-                    return;
-                }
-
-
-                /*
-                 * Raum beitreten
-                 */
-
-                if (
-                    message.type ===
-                    "joinRoom"
-                ) {
-
-                    const name =
-                        String(
-                            message.name ||
-                            ""
-                        )
-                            .trim()
-                            .slice(0, 20);
-
-
-                    const code =
-                        String(
-                            message.code ||
-                            ""
-                        )
-                            .trim()
-                            .toUpperCase();
-
-
                     joinRoom(
                         code,
-                        name,
                         ws
                     );
 
-
                     return;
                 }
 
+
+                // =========================================
+                // SPIELER MUSS BEREITS IN EINEM RAUM SEIN
+                // =========================================
 
                 const room =
                     rooms.get(
                         ws.roomCode
                     );
 
-
                 if (!room) {
-
                     send(
                         ws,
                         "error",
@@ -1563,15 +1077,14 @@ wss.on(
                 }
 
 
-                /*
-                 * Eingabe
-                 */
+                // =========================================
+                // INPUT
+                // =========================================
 
                 if (
                     message.type ===
                     "input"
                 ) {
-
                     handleInput(
                         room,
                         ws,
@@ -1581,29 +1094,25 @@ wss.on(
                         )
                     );
 
-
                     return;
                 }
 
 
-                /*
-                 * Reset
-                 */
+                // =========================================
+                // RESET
+                // =========================================
 
                 if (
                     message.type ===
                     "reset"
                 ) {
-
                     resetRoom(
                         room,
                         ws
                     );
 
-
                     return;
                 }
-
             }
         );
 
@@ -1611,9 +1120,7 @@ wss.on(
         ws.on(
             "close",
             () => {
-
                 handleDisconnect(ws);
-
             }
         );
 
@@ -1621,28 +1128,23 @@ wss.on(
         ws.on(
             "error",
             () => {
-
                 handleDisconnect(ws);
-
             }
         );
-
     }
 );
 
 
-/* =========================================================
-   SERVER START
-========================================================= */
+// =========================================================
+// SERVER START
+// =========================================================
 
 server.listen(
     PORT,
     "0.0.0.0",
     () => {
-
         console.log(
             `Stickman Fight läuft auf Port ${PORT}`
         );
-
     }
 );
