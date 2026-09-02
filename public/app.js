@@ -20,6 +20,7 @@ function setStatus(text) {
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+
   socket = new WebSocket(`${protocol}//${location.host}`);
 
   socket.addEventListener("open", () => {
@@ -38,16 +39,18 @@ function connect() {
 
     if (message.type === "roomCreated") {
       myPlayerId = message.playerId;
+
       roomCodeText.textContent = message.roomCode;
 
-      setStatus("Raum erstellt. Warte auf Spieler 2...");
+      setStatus("Raum erstellt. Warte auf PLAYER 2...");
     }
 
     if (message.type === "roomJoined") {
       myPlayerId = message.playerId;
+
       roomCodeText.textContent = message.roomCode;
 
-      setStatus("Raum beigetreten. Starte...");
+      setStatus("Raum beigetreten.");
     }
 
     if (message.type === "state") {
@@ -80,16 +83,16 @@ function updateStatusFromGame() {
   }
 
   if (gameState.status === "waiting") {
-    setStatus("Warte auf Spieler 2...");
+    setStatus("Warte auf PLAYER 2...");
     restartBtn.style.display = "none";
   }
 
   if (gameState.status === "countdown") {
-    setStatus(
-      gameState.countdown > 0
-        ? `Start in ${gameState.countdown}...`
-        : "Los!"
-    );
+    if (gameState.countdown > 0) {
+      setStatus(`Start in ${gameState.countdown}...`);
+    } else {
+      setStatus("KÄMPF!");
+    }
 
     restartBtn.style.display = "none";
   }
@@ -105,11 +108,10 @@ function updateStatusFromGame() {
     );
 
     if (winner) {
-      if (winner.id === myPlayerId) {
-        setStatus("🏆 DU HAST GEWONNEN!");
-      } else {
-        setStatus("💀 DU HAST VERLOREN!");
-      }
+      const winnerNumber =
+        gameState.players.indexOf(winner) + 1;
+
+      setStatus(`PLAYER ${winnerNumber} GEWINNT!`);
     }
 
     restartBtn.style.display = "inline-block";
@@ -117,40 +119,50 @@ function updateStatusFromGame() {
 }
 
 function sendInput(code, pressed) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+  if (!socket) {
     return;
   }
 
-  socket.send(JSON.stringify({
-    type: "input",
-    key: code,
-    pressed: pressed
-  }));
+  if (socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  socket.send(
+    JSON.stringify({
+      type: "input",
+      key: code,
+      pressed: pressed
+    })
+  );
 }
 
 window.addEventListener("keydown", (event) => {
+  const code = event.code || event.key;
+
   if (
-    event.code === "ArrowLeft" ||
-    event.code === "ArrowRight" ||
-    event.code === "ArrowUp" ||
-    event.code === "Space"
+    code === "ArrowLeft" ||
+    code === "ArrowRight" ||
+    code === "ArrowUp" ||
+    code === "Space"
   ) {
     event.preventDefault();
   }
 
-  if (keys[event.code]) {
+  if (keys[code]) {
     return;
   }
 
-  keys[event.code] = true;
+  keys[code] = true;
 
-  sendInput(event.code, true);
+  sendInput(code, true);
 });
 
 window.addEventListener("keyup", (event) => {
-  keys[event.code] = false;
+  const code = event.code || event.key;
 
-  sendInput(event.code, false);
+  keys[code] = false;
+
+  sendInput(code, false);
 });
 
 createBtn.addEventListener("click", () => {
@@ -159,9 +171,11 @@ createBtn.addEventListener("click", () => {
     return;
   }
 
-  socket.send(JSON.stringify({
-    type: "createRoom"
-  }));
+  socket.send(
+    JSON.stringify({
+      type: "createRoom"
+    })
+  );
 });
 
 joinBtn.addEventListener("click", () => {
@@ -177,10 +191,12 @@ joinBtn.addEventListener("click", () => {
     return;
   }
 
-  socket.send(JSON.stringify({
-    type: "joinRoom",
-    roomCode: code
-  }));
+  socket.send(
+    JSON.stringify({
+      type: "joinRoom",
+      roomCode: code
+    })
+  );
 });
 
 restartBtn.addEventListener("click", () => {
@@ -188,9 +204,11 @@ restartBtn.addEventListener("click", () => {
     return;
   }
 
-  socket.send(JSON.stringify({
-    type: "reset"
-  }));
+  socket.send(
+    JSON.stringify({
+      type: "reset"
+    })
+  );
 });
 
 function drawBackground() {
@@ -202,14 +220,27 @@ function drawBackground() {
   );
 
   gradient.addColorStop(0, "#202a44");
-  gradient.addColorStop(1, "#111");
+  gradient.addColorStop(1, "#111111");
+
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
 
   // Mond
   ctx.beginPath();
-  ctx.arc(850, 80, 40, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff";
+  ctx.arc(
+    850,
+    80,
+    40,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fillStyle = "#ffffff";
   ctx.fill();
 
   // Berge
@@ -240,47 +271,102 @@ function drawBackground() {
 function drawArena() {
   const groundY = 455;
 
-  ctx.fillStyle = "#333";
-  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+  ctx.fillStyle = "#333333";
 
-  ctx.fillStyle = "#666";
-  ctx.fillRect(0, groundY, canvas.width, 8);
+  ctx.fillRect(
+    0,
+    groundY,
+    canvas.width,
+    canvas.height - groundY
+  );
 
-  // Kleine Linien auf dem Boden
-  ctx.strokeStyle = "#555";
+  ctx.fillStyle = "#777777";
+
+  ctx.fillRect(
+    0,
+    groundY,
+    canvas.width,
+    8
+  );
+
+  ctx.strokeStyle = "#555555";
   ctx.lineWidth = 2;
 
   for (let x = 0; x < canvas.width; x += 50) {
     ctx.beginPath();
+
     ctx.moveTo(x, groundY + 20);
     ctx.lineTo(x + 25, groundY + 20);
+
     ctx.stroke();
   }
 }
 
-function drawHealthBar(x, y, width, hp, label, flip = false) {
-  hp = Math.max(0, Math.min(100, hp));
+function drawHealthBar(
+  x,
+  y,
+  width,
+  hp,
+  label,
+  flip = false
+) {
+  hp = Math.max(
+    0,
+    Math.min(100, hp)
+  );
 
-  ctx.fillStyle = "#000";
-  ctx.fillRect(x, y, width, 30);
+  ctx.fillStyle = "#000000";
 
-  ctx.fillStyle = hp > 50 ? "#2ecc71" : hp > 20 ? "#f1c40f" : "#e74c3c";
+  ctx.fillRect(
+    x,
+    y,
+    width,
+    30
+  );
 
-  const hpWidth = width * (hp / 100);
+  ctx.fillStyle =
+    hp > 50
+      ? "#2ecc71"
+      : hp > 20
+      ? "#f1c40f"
+      : "#e74c3c";
+
+  const hpWidth =
+    width * (hp / 100);
 
   if (flip) {
-    ctx.fillRect(x + width - hpWidth, y, hpWidth, 30);
+    ctx.fillRect(
+      x + width - hpWidth,
+      y,
+      hpWidth,
+      30
+    );
   } else {
-    ctx.fillRect(x, y, hpWidth, 30);
+    ctx.fillRect(
+      x,
+      y,
+      hpWidth,
+      30
+    );
   }
 
-  ctx.strokeStyle = "#fff";
+  ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, width, 30);
 
-  ctx.fillStyle = "#fff";
+  ctx.strokeRect(
+    x,
+    y,
+    width,
+    30
+  );
+
+  ctx.fillStyle = "#ffffff";
   ctx.font = "bold 18px Arial";
-  ctx.textAlign = flip ? "right" : "left";
+
+  ctx.textAlign = flip
+    ? "right"
+    : "left";
+
   ctx.fillText(
     `${label} ${hp} HP`,
     flip ? x + width : x,
@@ -290,6 +376,19 @@ function drawHealthBar(x, y, width, hp, label, flip = false) {
   ctx.textAlign = "center";
 }
 
+function getPlayerNumber(player) {
+  if (!gameState || !gameState.players) {
+    return 1;
+  }
+
+  const index =
+    gameState.players.findIndex(
+      p => p.id === player.id
+    );
+
+  return index === 1 ? 2 : 1;
+}
+
 function drawStickman(player) {
   if (!player) {
     return;
@@ -297,9 +396,16 @@ function drawStickman(player) {
 
   const x = player.x;
   const y = player.y;
-  const dir = player.direction || 1;
 
-  const isAttacking = player.attack !== null;
+  const dir =
+    player.direction || 1;
+
+  const isAttacking =
+    player.attack !== null &&
+    player.attack !== undefined;
+
+  const playerNumber =
+    getPlayerNumber(player);
 
   ctx.save();
 
@@ -307,22 +413,45 @@ function drawStickman(player) {
 
   // Schatten
   ctx.beginPath();
-  ctx.ellipse(0, 4, 30, 8, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
+
+  ctx.ellipse(
+    0,
+    4,
+    30,
+    8,
+    0,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fillStyle =
+    "rgba(0,0,0,0.4)";
+
   ctx.fill();
 
   // Kopf
   ctx.beginPath();
-  ctx.arc(0, -68, 18, 0, Math.PI * 2);
-  ctx.fillStyle = player.id === myPlayerId
-    ? "#4dd0ff"
-    : "#ff5d73";
+
+  ctx.arc(
+    0,
+    -68,
+    18,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fillStyle =
+    playerNumber === 1
+      ? "#4dd0ff"
+      : "#ff5d73";
+
   ctx.fill();
 
   // Augen
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = "#111111";
 
   ctx.beginPath();
+
   ctx.arc(
     -6 + dir * 3,
     -72,
@@ -330,9 +459,11 @@ function drawStickman(player) {
     0,
     Math.PI * 2
   );
+
   ctx.fill();
 
   ctx.beginPath();
+
   ctx.arc(
     5 + dir * 3,
     -72,
@@ -340,83 +471,184 @@ function drawStickman(player) {
     0,
     Math.PI * 2
   );
+
   ctx.fill();
 
   // Körper
-  ctx.strokeStyle = "#fff";
+  ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 7;
   ctx.lineCap = "round";
 
   ctx.beginPath();
-  ctx.moveTo(0, -50);
-  ctx.lineTo(0, -10);
+
+  ctx.moveTo(
+    0,
+    -50
+  );
+
+  ctx.lineTo(
+    0,
+    -10
+  );
+
   ctx.stroke();
 
   // Beine
   ctx.beginPath();
-  ctx.moveTo(0, -10);
-  ctx.lineTo(-18, 20);
+
+  ctx.moveTo(
+    0,
+    -10
+  );
+
+  ctx.lineTo(
+    -18,
+    20
+  );
+
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(0, -10);
-  ctx.lineTo(18, 20);
+
+  ctx.moveTo(
+    0,
+    -10
+  );
+
+  ctx.lineTo(
+    18,
+    20
+  );
+
   ctx.stroke();
 
   // Arme
   if (isAttacking) {
     if (player.attack === "punch") {
       ctx.beginPath();
-      ctx.moveTo(0, -42);
-      ctx.lineTo(dir * 38, -45);
+
+      ctx.moveTo(
+        0,
+        -42
+      );
+
+      ctx.lineTo(
+        dir * 38,
+        -45
+      );
+
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(0, -42);
-      ctx.lineTo(-dir * 15, -18);
+
+      ctx.moveTo(
+        0,
+        -42
+      );
+
+      ctx.lineTo(
+        -dir * 15,
+        -18
+      );
+
       ctx.stroke();
 
       // Faust
       ctx.beginPath();
-      ctx.arc(dir * 45, -45, 7, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff";
+
+      ctx.arc(
+        dir * 45,
+        -45,
+        7,
+        0,
+        Math.PI * 2
+      );
+
+      ctx.fillStyle = "#ffffff";
       ctx.fill();
     } else {
-      // kick
+      // Kick
       ctx.beginPath();
-      ctx.moveTo(0, -15);
-      ctx.lineTo(dir * 42, -3);
+
+      ctx.moveTo(
+        0,
+        -15
+      );
+
+      ctx.lineTo(
+        dir * 42,
+        -3
+      );
+
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(0, -42);
-      ctx.lineTo(-dir * 15, -18);
+
+      ctx.moveTo(
+        0,
+        -42
+      );
+
+      ctx.lineTo(
+        -dir * 15,
+        -18
+      );
+
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(0, -10);
-      ctx.lineTo(-dir * 16, 18);
+
+      ctx.moveTo(
+        0,
+        -10
+      );
+
+      ctx.lineTo(
+        -dir * 16,
+        18
+      );
+
       ctx.stroke();
     }
   } else {
+    // Linker Arm
     ctx.beginPath();
-    ctx.moveTo(0, -42);
-    ctx.lineTo(-dir * 20, -18);
+
+    ctx.moveTo(
+      0,
+      -42
+    );
+
+    ctx.lineTo(
+      -dir * 20,
+      -18
+    );
+
     ctx.stroke();
 
+    // Rechter Arm
     ctx.beginPath();
-    ctx.moveTo(0, -42);
-    ctx.lineTo(dir * 20, -18);
+
+    ctx.moveTo(
+      0,
+      -42
+    );
+
+    ctx.lineTo(
+      dir * 20,
+      -18
+    );
+
     ctx.stroke();
   }
 
-  // Spielername
-  ctx.fillStyle = "#fff";
+  // Nur PLAYER 1 / PLAYER 2
+  ctx.fillStyle = "#ffffff";
   ctx.font = "bold 14px Arial";
   ctx.textAlign = "center";
 
   ctx.fillText(
-    player.id === myPlayerId ? "DU" : "SPIELER",
+    `PLAYER ${playerNumber}`,
     0,
     -100
   );
@@ -432,17 +664,18 @@ function drawCenterMessage() {
   ctx.textAlign = "center";
 
   if (gameState.status === "waiting") {
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = "#ffffff";
     ctx.font = "bold 34px Arial";
+
     ctx.fillText(
-      "Warte auf Spieler 2...",
+      "Warte auf PLAYER 2...",
       canvas.width / 2,
       120
     );
   }
 
   if (gameState.status === "countdown") {
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = "#ffffff";
     ctx.font = "bold 90px Arial";
 
     const number =
@@ -458,22 +691,21 @@ function drawCenterMessage() {
   }
 
   if (gameState.status === "finished") {
-    const winner = gameState.players.find(
-      player => player.id === gameState.winner
-    );
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 56px Arial";
-
-    if (winner && winner.id === myPlayerId) {
-      ctx.fillText(
-        "GEWONNEN!",
-        canvas.width / 2,
-        220
+    const winner =
+      gameState.players.find(
+        player =>
+          player.id === gameState.winner
       );
-    } else {
+
+    if (winner) {
+      const winnerNumber =
+        getPlayerNumber(winner);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 56px Arial";
+
       ctx.fillText(
-        "VERLOREN!",
+        `PLAYER ${winnerNumber} GEWINNT!`,
         canvas.width / 2,
         220
       );
@@ -485,9 +717,15 @@ function draw() {
   drawBackground();
   drawArena();
 
-  if (gameState && gameState.players) {
-    const player1 = gameState.players[0];
-    const player2 = gameState.players[1];
+  if (
+    gameState &&
+    gameState.players
+  ) {
+    const player1 =
+      gameState.players[0];
+
+    const player2 =
+      gameState.players[1];
 
     if (player1) {
       drawStickman(player1);
@@ -503,7 +741,7 @@ function draw() {
         25,
         300,
         player1.hp,
-        "SPIELER 1"
+        "PLAYER 1"
       );
     }
 
@@ -513,7 +751,7 @@ function draw() {
         25,
         300,
         player2.hp,
-        "SPIELER 2",
+        "PLAYER 2",
         true
       );
     }
